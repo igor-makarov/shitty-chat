@@ -1,10 +1,9 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { callable, routeAgentRequest, type Schedule } from "agents";
-import { getSchedulePrompt, scheduleSchema } from "agents/schedule";
+import { scheduleSchema } from "agents/schedule";
 import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
 import {
   convertToModelMessages,
-  isLoopFinished,
   jsonSchema,
   stepCountIs,
   streamText,
@@ -167,14 +166,11 @@ export class ChatAgent extends AIChatAgent<Env> {
       const spec = (await res.json()) as object;
 
       const generator = await OpenAPIToolGenerator.fromJSON(spec);
-      const generatorOptions: Parameters<
-        typeof generator.generateTools
-      >[0] = {};
+      const generatorOptions: Parameters<typeof generator.generateTools>[0] =
+        {};
 
       if (specDef.onlyOperations) {
-        generatorOptions.filterFn = (op: {
-          operationId?: string;
-        }) =>
+        generatorOptions.filterFn = (op: { operationId?: string }) =>
           op.operationId != null &&
           specDef.onlyOperations!.includes(op.operationId);
       }
@@ -305,7 +301,7 @@ export class ChatAgent extends AIChatAgent<Env> {
           }
         })
       },
-      stopWhen: isLoopFinished(),
+      stopWhen: stepCountIs(30),
       abortSignal: options?.abortSignal
     });
 
