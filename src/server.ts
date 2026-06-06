@@ -4,15 +4,111 @@ import { getSchedulePrompt, scheduleSchema } from "agents/schedule";
 import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
 import {
   convertToModelMessages,
+  jsonSchema,
   pruneMessages,
   stepCountIs,
   streamText,
   tool
 } from "ai";
 import { z } from "zod";
+import { OpenAPIToolGenerator, type McpOpenAPITool } from "mcp-from-openapi";
+
+// ── OpenAPI tool generation helpers ──────────────────────────────────
+
+const OPENAPI_SPEC_URL =
+  "https://open-bus-stride-api.hasadna.org.il/openapi.json";
+
+function mcpToolToAiTool(t: McpOpenAPITool) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (tool as any)({
+    description:
+      t.metadata.operationSummary ||
+      t.metadata.operationDescription ||
+      t.description ||
+      `${t.metadata.method.toUpperCase()} ${t.metadata.path}`,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    inputSchema: jsonSchema(t.inputSchema as any),
+    execute: async (input: Record<string, unknown>) => {
+      let path = t.metadata.path;
+      const query = new URLSearchParams();
+      const headers: Record<string, string> = {};
+      let bodyParts: Array<{ key: string; value: unknown }> = [];
+
+      for (const m of t.mapper) {
+        const value = input[m.inputKey];
+        if (value === undefined || value === null) continue;
+
+        switch (m.type) {
+          case "path":
+            path = path.replace(
+              `{${m.key}}`,
+              encodeURIComponent(String(value))
+            );
+            break;
+          case "query":
+            if (Array.isArray(value)) {
+              for (const v of value) query.append(m.key, String(v));
+            } else {
+              query.set(m.key, String(value));
+            }
+            break;
+          case "header":
+            headers[m.key] = String(value);
+            break;
+          case "body":
+            bodyParts.push({ key: m.key, value });
+            break;
+          case "cookie":
+            headers["cookie"] =
+              (headers["cookie"] || "") +
+              `${m.key}=${encodeURIComponent(String(value))}; `;
+            break;
+        }
+      }
+
+      const baseUrl =
+        t.metadata.servers?.[0]?.url ??
+        "https://open-bus-stride-api.hasadna.org.il";
+      const qs = query.toString();
+      const url = `${baseUrl}${path}${qs ? "?" + qs : ""}`;
+
+      // Build body object from assembled parts
+      let body: Record<string, unknown> | undefined;
+      if (bodyParts.length > 0) {
+        body = {};
+        for (const { key, value } of bodyParts) {
+          body[key] = value;
+        }
+      }
+
+      const response = await fetch(url, {
+        method: t.metadata.method.toUpperCase(),
+        headers: {
+          accept: "application/json",
+          ...headers
+        },
+        body: body ? JSON.stringify(body) : undefined
+      });
+
+      if (!response.ok) {
+        return {
+          error: true,
+          status: response.status,
+          statusText: response.statusText,
+          body: await response.text().catch(() => "")
+        };
+      }
+
+      return await response.json();
+    }
+  });
+}
+
+// ── Agent ────────────────────────────────────────────────────────────
 
 export class ChatAgent extends AIChatAgent<Env> {
   maxPersistedMessages = 100;
+  private _openapiToolsPromise?: Promise<Record<string, unknown>>;
 
   onStart() {
     // Configure OAuth popup behavior for MCP servers that require authentication
@@ -42,8 +138,38 @@ export class ChatAgent extends AIChatAgent<Env> {
     await this.removeMcpServer(serverId);
   }
 
+  private async getOpenapiTools() {
+    if (!this._openapiToolsPromise) {
+      this._openapiToolsPromise = this._loadOpenapiTools();
+    }
+    return this._openapiToolsPromise;
+  }
+
+  private async _loadOpenapiTools() {
+    console.log("Loading OpenAPI spec from", OPENAPI_SPEC_URL);
+    const res = await fetch(OPENAPI_SPEC_URL);
+    if (!res.ok)
+      throw new Error(
+        `Failed to fetch OpenAPI spec: ${res.status} ${res.statusText}`
+      );
+    const spec = (await res.json()) as object;
+
+    const generator = await OpenAPIToolGenerator.fromJSON(spec);
+    const openapiTools = await generator.generateTools();
+
+    console.log(`Generated ${openapiTools.length} tools from OpenAPI spec`);
+
+    const tools: Record<string, unknown> = {};
+    for (const ot of openapiTools) {
+      const name = ot.name.replace(/[^a-zA-Z0-9_-]/g, "_");
+      tools[name] = mcpToolToAiTool(ot);
+    }
+    return tools;
+  }
+
   async onChatMessage(_onFinish: unknown, options?: OnChatMessageOptions) {
     const mcpTools = this.mcp.getAITools();
+    const openapiTools = await this.getOpenapiTools();
     const opencode = createOpenAICompatible({
       name: "opencode",
       baseURL: "https://opencode.ai/zen/go/v1",
@@ -67,6 +193,9 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
       tools: {
         // MCP tools from connected servers
         ...mcpTools,
+
+        // Tools generated from OpenAPI spec (public transit API)
+        ...openapiTools,
 
         // Server-side tool: runs automatically on the server
         getWeather: tool({
