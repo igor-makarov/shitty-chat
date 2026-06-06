@@ -4,7 +4,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "ai-web-thingy",
+	"name": "shitty-chat",
 	"main": "src/server.ts",
 	"compatibility_date": "2026-03-02",
 	"compatibility_flags": [
