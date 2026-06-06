@@ -723,8 +723,9 @@ function Chat() {
                     );
                   }
 
-                  // Reasoning parts
+                  // Reasoning parts (debug only)
                   if (
+                    showDebug &&
                     part.type === "reasoning" &&
                     (part as { text?: string }).text?.trim()
                   ) {

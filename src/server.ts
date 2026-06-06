@@ -4,6 +4,7 @@ import { getSchedulePrompt, scheduleSchema } from "agents/schedule";
 import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
 import {
   convertToModelMessages,
+  isLoopFinished,
   jsonSchema,
   stepCountIs,
   streamText,
@@ -14,8 +15,17 @@ import { OpenAPIToolGenerator, type McpOpenAPITool } from "mcp-from-openapi";
 
 // ── OpenAPI tool generation helpers ──────────────────────────────────
 
-const OPENAPI_SPEC_URL =
-  "https://open-bus-stride-api.hasadna.org.il/openapi.json";
+const OPENAPI_SPECS = [
+  {
+    name: "bus",
+    url: "https://open-bus-stride-api.hasadna.org.il/openapi.json"
+  },
+  {
+    name: "hebcal",
+    url: "https://www.hebcal.com/api-docs/openapi.json",
+    onlyOperations: ["getZmanim"]
+  }
+];
 
 function mcpToolToAiTool(t: McpOpenAPITool) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -145,25 +155,42 @@ export class ChatAgent extends AIChatAgent<Env> {
   }
 
   private async _loadOpenapiTools() {
-    console.log("Loading OpenAPI spec from", OPENAPI_SPEC_URL);
-    const res = await fetch(OPENAPI_SPEC_URL);
-    if (!res.ok)
-      throw new Error(
-        `Failed to fetch OpenAPI spec: ${res.status} ${res.statusText}`
+    const allTools: Record<string, unknown> = {};
+
+    for (const specDef of OPENAPI_SPECS) {
+      console.log(`Loading OpenAPI spec [${specDef.name}] from`, specDef.url);
+      const res = await fetch(specDef.url);
+      if (!res.ok)
+        throw new Error(
+          `Failed to fetch OpenAPI spec [${specDef.name}]: ${res.status} ${res.statusText}`
+        );
+      const spec = (await res.json()) as object;
+
+      const generator = await OpenAPIToolGenerator.fromJSON(spec);
+      const generatorOptions: Parameters<
+        typeof generator.generateTools
+      >[0] = {};
+
+      if (specDef.onlyOperations) {
+        generatorOptions.filterFn = (op: {
+          operationId?: string;
+        }) =>
+          op.operationId != null &&
+          specDef.onlyOperations!.includes(op.operationId);
+      }
+
+      const openapiTools = await generator.generateTools(generatorOptions);
+      console.log(
+        `Generated ${openapiTools.length} tools from [${specDef.name}]`
       );
-    const spec = (await res.json()) as object;
 
-    const generator = await OpenAPIToolGenerator.fromJSON(spec);
-    const openapiTools = await generator.generateTools();
-
-    console.log(`Generated ${openapiTools.length} tools from OpenAPI spec`);
-
-    const tools: Record<string, unknown> = {};
-    for (const ot of openapiTools) {
-      const name = ot.name.replace(/[^a-zA-Z0-9_-]/g, "_");
-      tools[name] = mcpToolToAiTool(ot);
+      for (const ot of openapiTools) {
+        const name = ot.name.replace(/[^a-zA-Z0-9_-]/g, "_");
+        allTools[name] = mcpToolToAiTool(ot);
+      }
     }
-    return tools;
+
+    return allTools;
   }
 
   async onChatMessage(_onFinish: unknown, options?: OnChatMessageOptions) {
@@ -187,26 +214,6 @@ export class ChatAgent extends AIChatAgent<Env> {
 
         // Tools generated from OpenAPI spec (public transit API)
         ...openapiTools,
-
-        // Server-side tool: runs automatically on the server
-        getWeather: tool({
-          description: "Get the current weather for a city",
-          inputSchema: z.object({
-            city: z.string().describe("City name")
-          }),
-          execute: async ({ city }) => {
-            // Replace with a real weather API in production
-            const conditions = ["sunny", "cloudy", "rainy", "snowy"];
-            const temp = Math.floor(Math.random() * 30) + 5;
-            return {
-              city,
-              temperature: temp,
-              condition:
-                conditions[Math.floor(Math.random() * conditions.length)],
-              unit: "celsius"
-            };
-          }
-        }),
 
         // Client-side tool: no execute function — the browser handles it
         getUserTimezone: tool({
@@ -298,7 +305,7 @@ export class ChatAgent extends AIChatAgent<Env> {
           }
         })
       },
-      stopWhen: stepCountIs(30),
+      stopWhen: isLoopFinished(),
       abortSignal: options?.abortSignal
     });
 
