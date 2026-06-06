@@ -705,23 +705,24 @@ function Chat() {
                   </pre>
                 )}
 
-                {/* Tool parts */}
-                {message.parts.filter(isToolUIPart).map((part) => (
-                  <ToolPartView
-                    key={part.toolCallId}
-                    part={part}
-                    addToolApprovalResponse={addToolApprovalResponse}
-                  />
-                ))}
+                {/* Render all parts in chronological order */}
+                {message.parts.map((part, i) => {
+                  // Tool parts
+                  if (isToolUIPart(part)) {
+                    return (
+                      <ToolPartView
+                        key={part.toolCallId}
+                        part={part}
+                        addToolApprovalResponse={addToolApprovalResponse}
+                      />
+                    );
+                  }
 
-                {/* Reasoning parts */}
-                {message.parts
-                  .filter(
-                    (part) =>
-                      part.type === "reasoning" &&
-                      (part as { text?: string }).text?.trim()
-                  )
-                  .map((part, i) => {
+                  // Reasoning parts
+                  if (
+                    part.type === "reasoning" &&
+                    (part as { text?: string }).text?.trim()
+                  ) {
                     const reasoning = part as {
                       type: "reasoning";
                       text: string;
@@ -756,34 +757,32 @@ function Chat() {
                         </details>
                       </div>
                     );
-                  })}
+                  }
 
-                {/* Image parts */}
-                {message.parts
-                  .filter(
-                    (part): part is Extract<typeof part, { type: "file" }> =>
-                      part.type === "file" &&
-                      (part as { mediaType?: string }).mediaType?.startsWith(
-                        "image/"
-                      ) === true
-                  )
-                  .map((part, i) => (
-                    <div
-                      key={`file-${i}`}
-                      className={`flex ${isUser ? "justify-end" : "justify-start"}`}
-                    >
-                      <img
-                        src={part.url}
-                        alt="Attachment"
-                        className="max-h-64 rounded-xl border border-kumo-line object-contain"
-                      />
-                    </div>
-                  ))}
+                  // Image parts
+                  if (
+                    part.type === "file" &&
+                    (part as { mediaType?: string }).mediaType?.startsWith(
+                      "image/"
+                    )
+                  ) {
+                    const filePart = part as { type: "file"; url: string };
+                    return (
+                      <div
+                        key={`file-${i}`}
+                        className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+                      >
+                        <img
+                          src={filePart.url}
+                          alt="Attachment"
+                          className="max-h-64 rounded-xl border border-kumo-line object-contain"
+                        />
+                      </div>
+                    );
+                  }
 
-                {/* Text parts */}
-                {message.parts
-                  .filter((part) => part.type === "text")
-                  .map((part, i) => {
+                  // Text parts
+                  if (part.type === "text") {
                     const text = (part as { type: "text"; text: string }).text;
                     if (!text) return null;
 
@@ -811,7 +810,10 @@ function Chat() {
                         </div>
                       </div>
                     );
-                  })}
+                  }
+
+                  return null;
+                })}
               </div>
             );
           })}
