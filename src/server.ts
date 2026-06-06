@@ -5,7 +5,6 @@ import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
 import {
   convertToModelMessages,
   jsonSchema,
-  pruneMessages,
   stepCountIs,
   streamText,
   tool
@@ -180,12 +179,8 @@ export class ChatAgent extends AIChatAgent<Env> {
 
     const result = streamText({
       model: opencode("deepseek-v4-flash"),
-      system: `You are a helpful assistant that can call tools. Use the tools in a loop before ansewring user questions.`,
-      // Prune old tool calls to save tokens on long conversations
-      messages: pruneMessages({
-        messages: await convertToModelMessages(this.messages),
-        toolCalls: "before-last-2-messages"
-      }),
+      system: `You are a helpful assistant that can call tools. Use the tools in a loop before answering user questions.`,
+      messages: await convertToModelMessages(this.messages),
       tools: {
         // MCP tools from connected servers
         ...mcpTools,
@@ -303,7 +298,7 @@ export class ChatAgent extends AIChatAgent<Env> {
           }
         })
       },
-      stopWhen: stepCountIs(5),
+      stopWhen: stepCountIs(30),
       abortSignal: options?.abortSignal
     });
 
