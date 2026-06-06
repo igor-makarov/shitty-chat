@@ -97,38 +97,40 @@ function ThemeToggle() {
 
 function ToolPartView({
   part,
-  addToolApprovalResponse,
-  showDebug
+  addToolApprovalResponse
 }: {
   part: UIMessage["parts"][number];
   addToolApprovalResponse: (response: {
     id: string;
     approved: boolean;
   }) => void;
-  showDebug: boolean;
 }) {
   if (!isToolUIPart(part)) return null;
   const toolName = getToolName(part);
 
   // Completed
   if (part.state === "output-available") {
+    const hasOutput = part.output != null;
     return (
       <div className="flex justify-start">
-        <Surface className="max-w-[85%] px-4 py-2.5 rounded-xl ring ring-kumo-line">
-          <div className="flex items-center gap-2">
-            <GearIcon size={14} className="text-kumo-inactive" />
-            <Text size="xs" variant="secondary" bold>
-              {toolName}
-            </Text>
-            <Badge variant="secondary">Done</Badge>
-          </div>
-          {showDebug && (
-            <div className="font-mono mt-1">
-              <Text size="xs" variant="secondary">
-                {JSON.stringify(part.output, null, 2)}
+        <Surface className="max-w-[85%] w-full rounded-xl ring ring-kumo-line">
+          <details>
+            <summary className="flex items-center gap-2 cursor-pointer select-none px-4 py-2.5">
+              <GearIcon size={14} className="text-kumo-inactive" />
+              <Text size="xs" variant="secondary" bold>
+                {toolName}
               </Text>
-            </div>
-          )}
+              <Badge variant="secondary">Done</Badge>
+              {hasOutput && (
+                <CaretDownIcon size={10} className="text-kumo-subtle ml-auto" />
+              )}
+            </summary>
+            {hasOutput && (
+              <pre className="px-4 pb-2.5 text-xs text-kumo-default whitespace-pre-wrap overflow-auto max-h-48 font-mono">
+                {JSON.stringify(part.output, null, 2)}
+              </pre>
+            )}
+          </details>
         </Surface>
       </div>
     );
@@ -718,26 +720,21 @@ function Chat() {
                         key={part.toolCallId}
                         part={part}
                         addToolApprovalResponse={addToolApprovalResponse}
-                        showDebug={showDebug}
                       />
                     );
                   }
 
-                  // Reasoning parts (debug only)
-                  if (
-                    showDebug &&
-                    part.type === "reasoning" &&
-                    (part as { text?: string }).text?.trim()
-                  ) {
+                  // Reasoning parts (collapsed by default)
+                  if (part.type === "reasoning") {
                     const reasoning = part as {
                       type: "reasoning";
-                      text: string;
+                      text?: string;
                       state?: "streaming" | "done";
                     };
                     const isDone = reasoning.state === "done" || !isStreaming;
                     return (
                       <div key={i} className="flex justify-start">
-                        <details className="max-w-[85%] w-full" open={!isDone}>
+                        <details className="max-w-[85%] w-full">
                           <summary className="flex items-center gap-2 cursor-pointer px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-sm select-none">
                             <BrainIcon size={14} className="text-purple-400" />
                             <span className="font-medium text-kumo-default">
@@ -757,9 +754,11 @@ function Chat() {
                               className="ml-auto text-kumo-inactive"
                             />
                           </summary>
-                          <pre className="mt-2 px-3 py-2 rounded-lg bg-kumo-control text-xs text-kumo-default whitespace-pre-wrap overflow-auto max-h-64">
-                            {reasoning.text}
-                          </pre>
+                          {reasoning.text && (
+                            <pre className="mt-2 px-3 py-2 rounded-lg bg-kumo-control text-xs text-kumo-default whitespace-pre-wrap overflow-auto max-h-64">
+                              {reasoning.text}
+                            </pre>
+                          )}
                         </details>
                       </div>
                     );
