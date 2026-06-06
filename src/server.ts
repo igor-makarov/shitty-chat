@@ -180,11 +180,7 @@ export class ChatAgent extends AIChatAgent<Env> {
 
     const result = streamText({
       model: opencode("deepseek-v4-flash"),
-      system: `You are a helpful assistant that can understand images. You can check the weather, get the user's timezone, run calculations, and schedule tasks. When users share images, describe what you see and answer questions about them.
-
-${getSchedulePrompt({ date: new Date() })}
-
-If the user asks to schedule a task, use the schedule tool to schedule the task.`,
+      system: `You are a helpful assistant that can call tools. Use the tools in a loop before ansewring user questions.`,
       // Prune old tool calls to save tokens on long conversations
       messages: pruneMessages({
         messages: await convertToModelMessages(this.messages),
