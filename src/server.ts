@@ -1,5 +1,5 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { callable, routeAgentRequest, type Schedule } from "agents";
+import { routeAgentRequest, type Schedule } from "agents";
 import { scheduleSchema } from "agents/schedule";
 import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
 import {
@@ -118,34 +118,6 @@ export class ChatAgent extends AIChatAgent<Env> {
   maxPersistedMessages = 100;
   private _openapiToolsPromise?: Promise<Record<string, unknown>>;
 
-  onStart() {
-    // Configure OAuth popup behavior for MCP servers that require authentication
-    this.mcp.configureOAuthCallback({
-      customHandler: (result) => {
-        if (result.authSuccess) {
-          return new Response("<script>window.close();</script>", {
-            headers: { "content-type": "text/html" },
-            status: 200
-          });
-        }
-        return new Response(
-          `Authentication Failed: ${result.authError || "Unknown error"}`,
-          { headers: { "content-type": "text/plain" }, status: 400 }
-        );
-      }
-    });
-  }
-
-  @callable()
-  async addServer(name: string, url: string) {
-    return await this.addMcpServer(name, url);
-  }
-
-  @callable()
-  async removeServer(serverId: string) {
-    await this.removeMcpServer(serverId);
-  }
-
   private async getOpenapiTools() {
     if (!this._openapiToolsPromise) {
       this._openapiToolsPromise = this._loadOpenapiTools();
@@ -190,7 +162,6 @@ export class ChatAgent extends AIChatAgent<Env> {
   }
 
   async onChatMessage(_onFinish: unknown, options?: OnChatMessageOptions) {
-    const mcpTools = this.mcp.getAITools();
     const openapiTools = await this.getOpenapiTools();
     const opencode = createOpenAICompatible({
       name: "opencode",
@@ -205,9 +176,6 @@ export class ChatAgent extends AIChatAgent<Env> {
       system: `You are a helpful assistant that can call tools. Use the tools in a loop before answering user questions.`,
       messages: await convertToModelMessages(this.messages),
       tools: {
-        // MCP tools from connected servers
-        ...mcpTools,
-
         // Tools generated from OpenAPI spec (public transit API)
         ...openapiTools,
 
