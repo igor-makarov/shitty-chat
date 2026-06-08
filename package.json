@@ -18,7 +18,7 @@
     "types": "wrangler types env.d.ts --include-runtime false",
     "format": "oxfmt --write .",
     "lint": "oxlint src/",
-    "check": "oxfmt --check . && oxlint src/ && tsc"
+    "check": "oxfmt --check . && oxlint src/ && npm run types && tsc"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.48",
